@@ -6,94 +6,101 @@ const { v4: uuidv4 } = require('uuid');
 
 app.use(express.static('public'));
 
-// DATA STRUKTURU
-const rooms = {};        // Otaqların əsas siyahısı: { roomId: { name, limit, users: [] } }
-const socketToRoom = {}; // Socket ID -> Room ID əlaqəsi (Sürətli tapmaq üçün)
-const socketToUser = {}; // Socket ID -> User Info (PeerID və Ad)
+const rooms = {};        
+const socketToRoom = {}; 
+const socketToUser = {}; 
 
 io.on('connection', socket => {
-  
-  // 1. Yeni gələnə mövcud otaqları göstər
   socket.emit('room-list', rooms);
 
-  // 2. Otaq Yaratmaq
+  // Otaq Yaratmaq (Creator ID əlavə etdik)
   socket.on('create-room', ({ roomName, limit, username }) => {
     const roomId = uuidv4();
     rooms[roomId] = {
       id: roomId,
       name: roomName,
       limit: parseInt(limit),
-      users: []
+      users: [],
+      creatorId: socket.id // Yaradanın Socket ID-si
     };
-    
-    // Otaq yaranan kimi hamıya xəbər ver
     io.emit('room-list', rooms);
-    // Yaradanı otağa yönləndir (join-room funksiyasını çağıracaq client tərəfdə)
     socket.emit('room-created', roomId);
   });
 
-  // 3. Otağa Qoşulmaq
-  socket.on('join-room', (roomId, userId, username) => { // userId = PeerJS ID
-    // Otaq mövcuddurmu və yer varmı?
+  socket.on('join-room', (roomId, peerId, username) => {
     const room = rooms[roomId];
     if (room && room.users.length < room.limit) {
-      
       socket.join(roomId);
-      
-      // Server yaddaşında saxla
-      const newUser = { id: userId, name: username };
+      const newUser = { id: peerId, name: username, socketId: socket.id };
       room.users.push(newUser);
-      
-      // Tez tapmaq üçün xəritələmə edirik
       socketToRoom[socket.id] = roomId;
       socketToUser[socket.id] = newUser;
 
-      // Otaqdakılara yeni adamı xəbər ver
-      socket.to(roomId).emit('user-connected', userId, username);
+      // Admin olub olmadığını yoxla
+      const isAdmin = (room.creatorId === socket.id);
+
+      // Digərlərinə xəbər ver
+      socket.to(roomId).emit('user-connected', peerId, username);
       
-      // Yeni gələnə otaqdakıların siyahısını ver
-      socket.emit('current-participants', room.users);
+      // Qoşulana otaq məlumatını və adminin kim olduğunu göndər
+      socket.emit('current-participants', room.users, room.creatorId);
+      
+      // Admin statusunu özünə bildir
+      socket.emit('admin-status', isAdmin);
 
-      // Bütün dünyaya (Lobby-ə) otaq sayının dəyişdiyini xəbər ver
       io.emit('room-list', rooms);
-
     } else {
-      socket.emit('full-or-error', 'Otaq doludur və ya mövcud deyil!');
+      socket.emit('full-or-error', 'Otaq doludur!');
     }
   });
 
-  // 4. ÇIXIŞ (Disconnect) - Ən vacib hissə
+  // Mesajlaşma
+  socket.on('send-message', (message, roomId, username) => {
+      socket.to(roomId).emit('receive-message', { message, username });
+  });
+
+  // Qovma (Kick) Sistemi
+  socket.on('kick-user', (targetPeerId) => {
+      const roomId = socketToRoom[socket.id];
+      const room = rooms[roomId];
+
+      // Yalnız admin qova bilər
+      if (room && room.creatorId === socket.id) {
+          // Qovulacaq istifadəçinin socket ID-sini tap
+          const targetUser = room.users.find(u => u.id === targetPeerId);
+          if (targetUser) {
+              // Həmin istifadəçiyə "Qovuldun" siqnalı göndər
+              io.to(targetUser.socketId).emit('kicked-notification');
+              // Digərlərinə bildir ki, əlaqəni kəssinlər
+              io.to(roomId).emit('user-disconnected', targetPeerId); // UI-dan silinmək üçün
+          }
+      }
+  });
+
+  // Çıxış (Disconnect)
   socket.on('disconnect', () => {
     const roomId = socketToRoom[socket.id];
     const user = socketToUser[socket.id];
 
     if (roomId && user && rooms[roomId]) {
-      // 1. Otaqdakılara xəbər ver ki, Peer əlaqəsini kəssinlər
-      socket.to(roomId).emit('user-disconnected', user.id);
+      // Əgər admin çıxırsa, otaq dağıla bilər və ya adminlik başqasına keçə bilər
+      // Sadəlik üçün admin çıxanda otağı silmirik, sadəcə çıxır.
       
-      // 2. İstifadəçini otaq siyahısından sil
+      socket.to(roomId).emit('user-disconnected', user.id);
       rooms[roomId].users = rooms[roomId].users.filter(u => u.id !== user.id);
 
-      // 3. Əgər otaq boş qaldısa, otağı sil
       if (rooms[roomId].users.length === 0) {
         delete rooms[roomId];
       }
-
-      // 4. Bütün dünyaya yenilənmiş siyahını göndər
       io.emit('room-list', rooms);
     }
-
-    // Təmizlik işləri
     delete socketToRoom[socket.id];
     delete socketToUser[socket.id];
   });
 
-  // Səs (Mute/Unmute) statusu
   socket.on('toggle-audio', (roomId, userId, isMuted) => {
       socket.to(roomId).emit('user-toggled-audio', userId, isMuted);
   });
 });
 
-server.listen(process.env.PORT || 3000, () => {
-    console.log('Server işləyir...');
-});
+server.listen(process.env.PORT || 3000);
