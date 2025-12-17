@@ -212,8 +212,8 @@ select {
 }
 
 .user-card {
-    width: 200px;
-    height: 150px;
+    width: 220px;
+    height: 180px; 
     background: var(--card-bg);
     border-radius: 12px;
     display: flex;
@@ -222,23 +222,54 @@ select {
     justify-content: center;
     position: relative;
     box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    padding-top: 10px;
 }
 
 .avatar {
-    width: 60px;
-    height: 60px;
+    width: 50px;
+    height: 50px;
     background: #2f3136;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
-    margin-bottom: 10px;
+    font-size: 20px;
     border: 3px solid transparent;
     transition: 0.2s;
+    z-index: 2;
 }
 .speaking { border-color: var(--success) !important; box-shadow: 0 0 15px var(--success); }
-.user-name { font-size: 14px; font-weight: 500; }
+.user-name { font-size: 14px; font-weight: 500; margin-top: 5px; }
+
+/* Visualizer */
+.visualizer-canvas {
+    position: absolute;
+    bottom: 30px; 
+    left: 0;
+    width: 100%;
+    height: 40px;
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Volume Slider */
+.volume-control {
+    width: 60%;
+    margin-top: 5px;
+    height: 4px;
+    background: #444;
+    border-radius: 2px;
+    appearance: none;
+    outline: none;
+    cursor: pointer;
+}
+.volume-control::-webkit-slider-thumb {
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    background: var(--text-muted);
+    border-radius: 50%;
+}
 
 .controls-bar {
     position: absolute;
@@ -381,6 +412,34 @@ select {
 }
 .menu-item:hover { background: #2f3136; }
 
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+.modal-content {
+    background: var(--card-bg);
+    padding: 20px;
+    border-radius: 10px;
+    width: 300px;
+    text-align: center;
+}
+.modal-content input {
+    width: 100%;
+    padding: 10px;
+    margin: 15px 0;
+    background: var(--input-bg);
+    border: none; color: white; border-radius: 5px;
+}
+.modal-actions { display: flex; gap: 10px; justify-content: center; }
+.modal-actions button { padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; }
+#cancel-join-btn { background: #444; color: white; }
+
 @media screen and (max-width: 768px) {
     .lobby-card {
         flex-direction: column;
@@ -399,7 +458,7 @@ select {
     
     .user-card {
         width: 45%;
-        height: 120px;
+        height: 160px;
     }
     
     .controls-bar {
