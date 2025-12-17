@@ -1,91 +1,64 @@
-const socket = io('/');
-const peer = new Peer(undefined, {
-    host: '/', 
-    port: 443, // Render üçün 443, local üçün 3000 ola bilər (Cloud PeerJS istifadə etsək daha rahatdır)
-    // Sadəlik üçün default PeerJS serverini istifadə edirik:
-    path: '/peerjs' // Bunu server.js-də qurmaq lazımdır, amma ən asanı cloud peerjs serveridir.
-}); 
-// QEYD: Əgər aşağıdakı 'new Peer()' işləməsə, 'host' parametrini silib sadəcə new Peer() saxlayın.
-// MVP üçün sadə versiya:
-const myPeer = new Peer(); 
+const socket = io('/'); // Render-də avtomatik işləyəcək
+// PeerJS serveri cloud-dan istifadə edirik (stabil olması üçün)
+const myPeer = new Peer(undefined); 
 
 const lobbyContainer = document.getElementById('lobby-container');
 const roomContainer = document.getElementById('room-container');
 const roomsListEl = document.getElementById('rooms-list');
 const videoGrid = document.getElementById('video-grid');
 const myVideo = document.createElement('video');
-myVideo.muted = true; // Öz səsimizi eşitməyək
+myVideo.muted = true; 
 
-const peers = {}; // Digər istifadəçilərin zəngləri
+const peers = {}; // Aktiv zənglər
 let myStream;
-let currentRoomId;
+let currentRoomId = null; // Hazırda olduğumuz otaq
 let isMicMuted = false;
 let isDeafened = false;
 
-// UI Eventləri
+// ---- UI Hissəsi ----
+
 document.getElementById('limit-slider').oninput = function() {
     document.getElementById('limit-val').innerText = this.value;
 }
 
 document.getElementById('create-btn').onclick = () => {
     const name = document.getElementById('room-name').value;
-    const username = document.getElementById('username').value || 'Anonim';
+    const username = document.getElementById('username').value;
     const limit = document.getElementById('limit-slider').value;
     
+    if(!username) { alert("Zəhmət olmasa ad daxil edin!"); return; }
     if(name) socket.emit('create-room', { roomName: name, limit, username });
 };
 
 document.getElementById('leave-btn').onclick = () => {
-    location.reload(); // Ən sadə çıxış yolu səhifəni yeniləməkdir
+    // Səhifəni yeniləmək serverdə 'disconnect' eventini işə salır
+    window.location.reload(); 
 };
 
-// Səs İdarəetməsi
-const micBtn = document.getElementById('mic-btn');
-const deafBtn = document.getElementById('headphone-btn');
+// ---- Socket Logic ----
 
-micBtn.onclick = () => {
-    if(isDeafened) return; // Əgər karıqsa, mikrofon açıla bilməz
-    isMicMuted = !isMicMuted;
-    setMicState(isMicMuted);
-};
-
-deafBtn.onclick = () => {
-    isDeafened = !isDeafened;
-    // Eşitmə bağlananda mikrofon da avtomatik bağlanır
-    if (isDeafened) {
-        setMicState(true);
-        deafBtn.classList.add('muted-btn');
-        // Gələn bütün səsləri bağla
-        videoGrid.querySelectorAll('video').forEach(v => v.muted = true);
-    } else {
-        // Eşitməni açanda mikrofonu əvvəlki halına qaytar (və ya bağlı saxla, seçim)
-        deafBtn.classList.remove('muted-btn');
-        // Mikrofonu əl ilə açmaq lazımdır, avtomatik açılmasın (təhlükəsizlik)
-        videoGrid.querySelectorAll('video').forEach(v => {
-            if(v !== myVideo) v.muted = false;
-        });
-    }
-};
-
-function setMicState(mute) {
-    isMicMuted = mute;
-    myStream.getAudioTracks()[0].enabled = !isMicMuted;
-    if(isMicMuted) micBtn.classList.add('muted-btn');
-    else micBtn.classList.remove('muted-btn');
-}
-
-
-// Socket Eventləri
 socket.on('room-list', (rooms) => {
     roomsListEl.innerHTML = '';
+    // Əgər otaqlar boşdursa
+    if(Object.keys(rooms).length === 0) {
+        roomsListEl.innerHTML = '<div style="text-align:center; color:#555;">Hələ heç bir otaq yoxdur...</div>';
+        return;
+    }
+
     Object.values(rooms).forEach(room => {
         const div = document.createElement('div');
         div.className = 'room-item';
+        
+        // Dolu otağın düyməsini deaktiv et
+        const isFull = room.users.length >= room.limit;
+        const btnState = isFull ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : '';
+        const btnText = isFull ? 'DOLU' : 'QOŞUL';
+
         div.innerHTML = `
             <span>${room.name}</span>
-            <div>
-                <span>${room.users.length}/${room.limit}</span>
-                <button class="join-btn" onclick="joinRoom('${room.id}', '${room.name}')">QOŞUL</button>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:12px; color:#aaa;">${room.users.length}/${room.limit}</span>
+                <button class="join-btn" ${btnState} onclick="joinRoom('${room.id}', '${room.name}')">${btnText}</button>
             </div>
         `;
         roomsListEl.appendChild(div);
@@ -93,94 +66,117 @@ socket.on('room-list', (rooms) => {
 });
 
 socket.on('room-created', (id) => {
-    // Yaradan avtomatik qoşulur
-    const username = document.getElementById('username').value || 'Admin';
-    joinRoom(id, document.getElementById('room-name').value);
+    const name = document.getElementById('room-name').value;
+    joinRoom(id, name);
 });
 
-// Otağa qoşulmaq funksiyası
+socket.on('full-or-error', (msg) => {
+    alert(msg);
+    window.location.reload();
+});
+
+// ---- Otağa Qoşulma və WebRTC ----
+
 window.joinRoom = (roomId, roomName) => {
-    const username = document.getElementById('username').value || 'Qonaq';
+    const username = document.getElementById('username').value;
+    if(!username) { alert("Əvvəlcə adınızı daxil edin!"); return; }
+
     currentRoomId = roomId;
     
-    // UI Dəyişimi
+    // UI Keçidi
     lobbyContainer.classList.add('hidden');
     roomContainer.classList.remove('hidden');
     document.getElementById('active-room-name').innerText = roomName;
 
-    // Mikrofonu əldə et
     navigator.mediaDevices.getUserMedia({
         video: false,
         audio: true
     }).then(stream => {
         myStream = stream;
-        addParticipant(myPeer.id, username, stream, true); // Özümüzü əlavə edirik
+        
+        // Özümüzü əlavə edirik (səssiz)
+        addParticipantUi(myPeer.id, username, true);
 
+        // Kimsə mənə zəng edəndə (Mən otağa girəndə köhnələr zəng edir və ya tərsi)
         myPeer.on('call', call => {
-            call.answer(stream);
+            call.answer(stream); // Cavab ver və stream göndər
+            
             const video = document.createElement('video');
             call.on('stream', userVideoStream => {
                 addVideoStream(video, userVideoStream);
             });
+            
+            // Call ID-ni user ID kimi istifadə etmək üçün serverdən gələn datanı gözləmək lazımdır
+            // Amma PeerJS-də call.peer qarşı tərəfin ID-sidir.
+            peers[call.peer] = call;
         });
 
         socket.on('user-connected', (userId, userName) => {
+            // Yeni gələnə zəng et
             connectToNewUser(userId, stream, userName);
-            // Vizual olaraq istifadəçini əlavə et
-            addParticipantUi(userId, userName); 
+            addParticipantUi(userId, userName, false); 
         });
-        
-        // Serverə qoşulduğumuzu de
+
+        // Serverə qoşulduğumuzu bildiririk
         socket.emit('join-room', roomId, myPeer.id, username);
+    }).catch(err => {
+        console.error("Mikrofon xətası:", err);
+        alert("Mikrofona icazə vermədiniz!");
+        window.location.reload();
     });
 };
 
 socket.on('current-participants', (users) => {
+    // Otaqda məndən əvvəl olanları çək
     users.forEach(user => {
-        if(user.id !== myPeer.id) addParticipantUi(user.id, user.name);
+        if(user.id !== myPeer.id) {
+            addParticipantUi(user.id, user.name, false);
+        }
     });
 });
 
+// Çıxış edən istifadəçini silmək
 socket.on('user-disconnected', userId => {
-    if (peers[userId]) peers[userId].close();
+    if (peers[userId]) peers[userId].close(); // WebRTC əlaqəsini kəs
     const el = document.getElementById(`user-${userId}`);
-    if(el) el.remove();
+    if(el) el.remove(); // UI-dan sil
+    delete peers[userId];
 });
 
-
-// Köməkçi Funksiyalar
+// ---- Köməkçi Funksiyalar ----
 
 function connectToNewUser(userId, stream, userName) {
     const call = myPeer.call(userId, stream);
     const video = document.createElement('video');
+    
     call.on('stream', userVideoStream => {
         addVideoStream(video, userVideoStream);
     });
     call.on('close', () => {
         video.remove();
     });
+
     peers[userId] = call;
 }
 
-function addParticipantUi(userId, userName) {
+function addParticipantUi(userId, userName, isMe) {
+    // Təkrarçılığın qarşısını al
     if(document.getElementById(`user-${userId}`)) return;
     
     const div = document.createElement('div');
     div.className = 'user-card';
     div.id = `user-${userId}`;
+    
+    // Özümüzüksə fərqli rəngdə və ya işarədə göstər
+    const borderStyle = isMe ? 'border: 3px solid #3498db;' : 'border: 3px solid #333;';
+    
     div.innerHTML = `
-        <div class="avatar"><i class="fa-solid fa-microphone"></i></div>
-        <div class="user-name">${userName}</div>
+        <div class="avatar" style="${borderStyle}">
+            <i class="fa-solid fa-microphone"></i>
+        </div>
+        <div class="user-name">${userName} ${isMe ? '(Sən)' : ''}</div>
     `;
     videoGrid.appendChild(div);
-}
-
-// Özümüz üçün UI funksiyası
-function addParticipant(userId, userName, stream, isMe) {
-    addParticipantUi(userId, userName);
-    // Səs dalğası effekti (sadə)
-    // Burada AudioContext ilə səs analizi qurmaq olar, amma
-    // sadəlik üçün CSS ilə idarə edəcəyik
 }
 
 function addVideoStream(video, stream) {
@@ -188,7 +184,42 @@ function addVideoStream(video, stream) {
     video.addEventListener('loadedmetadata', () => {
         video.play();
     });
-    // Video elementi görünməz olmalıdır, sadəcə səs gəlsin
-    video.style.display = 'none'; 
+    video.style.display = 'none'; // Videonu gizlət, səs gəlsin
     videoGrid.append(video);
 }
+
+// Mikrofon və Qulaqlıq Düymələri
+const micBtn = document.getElementById('mic-btn');
+const deafBtn = document.getElementById('headphone-btn');
+
+micBtn.onclick = () => {
+    if(isDeafened) return;
+    isMicMuted = !isMicMuted;
+    myStream.getAudioTracks()[0].enabled = !isMicMuted;
+    micBtn.classList.toggle('muted-btn');
+    micBtn.innerHTML = isMicMuted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
+};
+
+deafBtn.onclick = () => {
+    isDeafened = !isDeafened;
+    if (isDeafened) {
+        // Eşitməni bağla (bütün videoları mute et)
+        videoGrid.querySelectorAll('video').forEach(v => v.muted = true);
+        
+        // Mikrofonu da bağla (avtomatik)
+        isMicMuted = true;
+        myStream.getAudioTracks()[0].enabled = false;
+        
+        deafBtn.classList.add('muted-btn');
+        micBtn.classList.add('muted-btn'); // Mic də qırmızı olsun
+        micBtn.innerHTML = '<i class="fa-solid fa-microphone-slash"></i>';
+    } else {
+        // Eşitməni aç
+        videoGrid.querySelectorAll('video').forEach(v => {
+            if(v !== myVideo) v.muted = false;
+        });
+        
+        deafBtn.classList.remove('muted-btn');
+        // Mikrofonu əl ilə açmaq lazımdır (istifadəçi istəsə)
+    }
+};
