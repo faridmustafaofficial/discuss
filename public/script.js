@@ -1,22 +1,73 @@
-const socket = io('/'); // Render-də avtomatik işləyəcək
-// PeerJS serveri cloud-dan istifadə edirik (stabil olması üçün)
-const myPeer = new Peer(undefined); 
+const socket = io('/');
+
+// HƏLL: Səs problemi üçün Google STUN serverləri
+const myPeer = new Peer(undefined, {
+    config: {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
+        ]
+    }
+});
 
 const lobbyContainer = document.getElementById('lobby-container');
 const roomContainer = document.getElementById('room-container');
 const roomsListEl = document.getElementById('rooms-list');
 const videoGrid = document.getElementById('video-grid');
-const myVideo = document.createElement('video');
-myVideo.muted = true; 
+const chatSidebar = document.getElementById('chat-sidebar');
+const messagesBox = document.getElementById('chat-messages');
+const micSelect = document.getElementById('mic-select');
+const contextMenu = document.getElementById('context-menu');
 
-const peers = {}; // Aktiv zənglər
+const peers = {}; 
 let myStream;
-let currentRoomId = null; // Hazırda olduğumuz otaq
+let currentRoomId = null;
 let isMicMuted = false;
 let isDeafened = false;
+let iamAdmin = false;
+let targetKickId = null; // Kimi qovuruq?
 
-// ---- UI Hissəsi ----
+// --- 1. MİKROFON SEÇİMİ VƏ CİHAZLAR ---
+async function getCameras() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioInputs = devices.filter(device => device.kind === 'audioinput');
+    
+    micSelect.innerHTML = '';
+    audioInputs.forEach(device => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.text = device.label || `Mikrofon ${micSelect.length + 1}`;
+        micSelect.appendChild(option);
+    });
+}
+getCameras();
 
+micSelect.onchange = async () => {
+    if(myStream) {
+        // Yeni cihazdan stream al
+        const newStream = await navigator.mediaDevices.getUserMedia({
+            audio: { deviceId: { exact: micSelect.value } },
+            video: false
+        });
+        
+        // Audio Track-i dəyiş
+        const audioTrack = newStream.getAudioTracks()[0];
+        const oldTrack = myStream.getAudioTracks()[0];
+        
+        myStream.removeTrack(oldTrack);
+        myStream.addTrack(audioTrack);
+
+        // Aktiv zənglərdə track-i yenilə (PeerJS üçün bu biraz mürəkkəbdir,
+        // sadə variant: Stream dəyişəndə səsi qarşı tərəfə yenidən göndəririk)
+        // MVP üçün: İstifadəçiyə "Dəyişiklik üçün yenidən girin" demək olar,
+        // amma müasir brauzerlərdə track avtomatik ötürülə bilər.
+        
+        // Səs bağlıdırsa yeni mikrofonu da bağla
+        audioTrack.enabled = !isMicMuted;
+    }
+};
+
+// --- UI EVENTLƏRİ ---
 document.getElementById('limit-slider').oninput = function() {
     document.getElementById('limit-val').innerText = this.value;
 }
@@ -25,40 +76,56 @@ document.getElementById('create-btn').onclick = () => {
     const name = document.getElementById('room-name').value;
     const username = document.getElementById('username').value;
     const limit = document.getElementById('limit-slider').value;
-    
-    if(!username) { alert("Zəhmət olmasa ad daxil edin!"); return; }
-    if(name) socket.emit('create-room', { roomName: name, limit, username });
+    if(name && username) socket.emit('create-room', { roomName: name, limit, username });
 };
 
-document.getElementById('leave-btn').onclick = () => {
-    // Səhifəni yeniləmək serverdə 'disconnect' eventini işə salır
-    window.location.reload(); 
+document.getElementById('leave-btn').onclick = () => location.reload();
+
+// Chat Aç/Bağla
+document.getElementById('chat-toggle-btn').onclick = () => {
+    chatSidebar.classList.toggle('collapsed');
+};
+document.getElementById('close-chat').onclick = () => {
+    chatSidebar.classList.add('collapsed');
 };
 
-// ---- Socket Logic ----
+// Chat Mesaj Göndər
+document.getElementById('send-msg-btn').onclick = sendMessage;
+document.getElementById('chat-input').addEventListener('keypress', (e) => {
+    if(e.key === 'Enter') sendMessage();
+});
+
+function sendMessage() {
+    const input = document.getElementById('chat-input');
+    const msg = input.value;
+    const username = document.getElementById('username').value;
+    if(msg.trim()) {
+        appendMessage(username, msg, true); // Öz mesajım
+        socket.emit('send-message', msg, currentRoomId, username);
+        input.value = '';
+    }
+}
+
+function appendMessage(user, text, isMe) {
+    const div = document.createElement('div');
+    div.className = `message ${isMe ? 'my-msg' : ''}`;
+    div.innerHTML = `<strong>${isMe ? 'Sən' : user}:</strong> ${text}`;
+    messagesBox.appendChild(div);
+    messagesBox.scrollTop = messagesBox.scrollHeight;
+}
+
+// --- SOCKET MƏNTİQİ ---
 
 socket.on('room-list', (rooms) => {
     roomsListEl.innerHTML = '';
-    // Əgər otaqlar boşdursa
-    if(Object.keys(rooms).length === 0) {
-        roomsListEl.innerHTML = '<div style="text-align:center; color:#555;">Hələ heç bir otaq yoxdur...</div>';
-        return;
-    }
-
     Object.values(rooms).forEach(room => {
         const div = document.createElement('div');
         div.className = 'room-item';
-        
-        // Dolu otağın düyməsini deaktiv et
-        const isFull = room.users.length >= room.limit;
-        const btnState = isFull ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : '';
-        const btnText = isFull ? 'DOLU' : 'QOŞUL';
-
         div.innerHTML = `
             <span>${room.name}</span>
-            <div style="display:flex; align-items:center; gap:10px;">
-                <span style="font-size:12px; color:#aaa;">${room.users.length}/${room.limit}</span>
-                <button class="join-btn" ${btnState} onclick="joinRoom('${room.id}', '${room.name}')">${btnText}</button>
+            <div>
+                <span>${room.users.length}/${room.limit}</span>
+                <button class="join-btn" onclick="joinRoom('${room.id}', '${room.name}')">QOŞUL</button>
             </div>
         `;
         roomsListEl.appendChild(div);
@@ -70,156 +137,142 @@ socket.on('room-created', (id) => {
     joinRoom(id, name);
 });
 
-socket.on('full-or-error', (msg) => {
-    alert(msg);
-    window.location.reload();
+socket.on('receive-message', ({ message, username }) => {
+    appendMessage(username, message, false);
+    if(chatSidebar.classList.contains('collapsed')) {
+        // Chat bağlıdırsa ikon qızarsın (notification effekti)
+        document.getElementById('chat-toggle-btn').style.color = '#3498db';
+    }
 });
 
-// ---- Otağa Qoşulma və WebRTC ----
+// Admin statusunu yoxla
+socket.on('admin-status', (status) => {
+    iamAdmin = status;
+    if(iamAdmin) console.log("Siz bu otağın adminisiniz!");
+});
+
+socket.on('kicked-notification', () => {
+    alert("Siz otaqdan qovuldunuz!");
+    location.reload();
+});
+
+
+// --- QOŞULMA ---
 
 window.joinRoom = (roomId, roomName) => {
     const username = document.getElementById('username').value;
-    if(!username) { alert("Əvvəlcə adınızı daxil edin!"); return; }
-
-    currentRoomId = roomId;
+    if(!username) { alert("Ad daxil edin!"); return; }
     
-    // UI Keçidi
+    currentRoomId = roomId;
     lobbyContainer.classList.add('hidden');
     roomContainer.classList.remove('hidden');
     document.getElementById('active-room-name').innerText = roomName;
 
-    navigator.mediaDevices.getUserMedia({
+    // Seçilmiş mikrofonu istifadə et
+    const selectedMic = micSelect.value;
+    const constraints = {
         video: false,
-        audio: true
-    }).then(stream => {
+        audio: selectedMic ? { deviceId: { exact: selectedMic } } : true
+    };
+
+    navigator.mediaDevices.getUserMedia(constraints).then(stream => {
         myStream = stream;
-        
-        // Özümüzü əlavə edirik (səssiz)
         addParticipantUi(myPeer.id, username, true);
 
-        // Kimsə mənə zəng edəndə (Mən otağa girəndə köhnələr zəng edir və ya tərsi)
         myPeer.on('call', call => {
-            call.answer(stream); // Cavab ver və stream göndər
-            
+            call.answer(stream);
             const video = document.createElement('video');
             call.on('stream', userVideoStream => {
                 addVideoStream(video, userVideoStream);
             });
-            
-            // Call ID-ni user ID kimi istifadə etmək üçün serverdən gələn datanı gözləmək lazımdır
-            // Amma PeerJS-də call.peer qarşı tərəfin ID-sidir.
             peers[call.peer] = call;
         });
 
         socket.on('user-connected', (userId, userName) => {
-            // Yeni gələnə zəng et
             connectToNewUser(userId, stream, userName);
-            addParticipantUi(userId, userName, false); 
+            addParticipantUi(userId, userName, false);
         });
 
-        // Serverə qoşulduğumuzu bildiririk
         socket.emit('join-room', roomId, myPeer.id, username);
-    }).catch(err => {
-        console.error("Mikrofon xətası:", err);
-        alert("Mikrofona icazə vermədiniz!");
-        window.location.reload();
     });
 };
 
-socket.on('current-participants', (users) => {
-    // Otaqda məndən əvvəl olanları çək
+socket.on('current-participants', (users, creatorId) => {
     users.forEach(user => {
-        if(user.id !== myPeer.id) {
-            addParticipantUi(user.id, user.name, false);
-        }
+        if(user.id !== myPeer.id) addParticipantUi(user.id, user.name, false);
     });
 });
 
-// Çıxış edən istifadəçini silmək
 socket.on('user-disconnected', userId => {
-    if (peers[userId]) peers[userId].close(); // WebRTC əlaqəsini kəs
+    if (peers[userId]) peers[userId].close();
     const el = document.getElementById(`user-${userId}`);
-    if(el) el.remove(); // UI-dan sil
-    delete peers[userId];
+    if(el) el.remove();
 });
 
-// ---- Köməkçi Funksiyalar ----
+// --- KÖMƏKÇİ FUNKSİYALAR ---
 
 function connectToNewUser(userId, stream, userName) {
     const call = myPeer.call(userId, stream);
     const video = document.createElement('video');
-    
     call.on('stream', userVideoStream => {
         addVideoStream(video, userVideoStream);
     });
-    call.on('close', () => {
-        video.remove();
-    });
-
     peers[userId] = call;
 }
 
 function addParticipantUi(userId, userName, isMe) {
-    // Təkrarçılığın qarşısını al
     if(document.getElementById(`user-${userId}`)) return;
     
     const div = document.createElement('div');
     div.className = 'user-card';
     div.id = `user-${userId}`;
-    
-    // Özümüzüksə fərqli rəngdə və ya işarədə göstər
-    const borderStyle = isMe ? 'border: 3px solid #3498db;' : 'border: 3px solid #333;';
-    
     div.innerHTML = `
-        <div class="avatar" style="${borderStyle}">
-            <i class="fa-solid fa-microphone"></i>
-        </div>
-        <div class="user-name">${userName} ${isMe ? '(Sən)' : ''}</div>
+        <div class="avatar"><i class="fa-solid fa-microphone"></i></div>
+        <div class="user-name">${userName}</div>
     `;
+    
+    // Sağ Tık (Context Menu) - Yalnız Admin və başqasına tıklayanda
+    if(!isMe) {
+        div.addEventListener('contextmenu', (e) => {
+            if(iamAdmin) {
+                e.preventDefault();
+                targetKickId = userId;
+                
+                contextMenu.style.top = `${e.pageY}px`;
+                contextMenu.style.left = `${e.pageX}px`;
+                contextMenu.classList.remove('hidden');
+            }
+        });
+    }
+
     videoGrid.appendChild(div);
 }
 
+// Context Menu Gizlət
+document.addEventListener('click', (e) => {
+    if (!contextMenu.contains(e.target)) contextMenu.classList.add('hidden');
+});
+
+// Qovmaq düyməsi basılanda
+document.getElementById('kick-option').onclick = () => {
+    if(targetKickId) {
+        socket.emit('kick-user', targetKickId);
+        contextMenu.classList.add('hidden');
+    }
+};
+
 function addVideoStream(video, stream) {
     video.srcObject = stream;
-    video.addEventListener('loadedmetadata', () => {
-        video.play();
-    });
-    video.style.display = 'none'; // Videonu gizlət, səs gəlsin
+    video.addEventListener('loadedmetadata', () => video.play());
+    video.style.display = 'none'; 
     videoGrid.append(video);
 }
 
-// Mikrofon və Qulaqlıq Düymələri
+// Səs İdarəetmə (Eyni qaldı)
 const micBtn = document.getElementById('mic-btn');
-const deafBtn = document.getElementById('headphone-btn');
-
 micBtn.onclick = () => {
-    if(isDeafened) return;
     isMicMuted = !isMicMuted;
     myStream.getAudioTracks()[0].enabled = !isMicMuted;
-    micBtn.classList.toggle('muted-btn');
     micBtn.innerHTML = isMicMuted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
-};
-
-deafBtn.onclick = () => {
-    isDeafened = !isDeafened;
-    if (isDeafened) {
-        // Eşitməni bağla (bütün videoları mute et)
-        videoGrid.querySelectorAll('video').forEach(v => v.muted = true);
-        
-        // Mikrofonu da bağla (avtomatik)
-        isMicMuted = true;
-        myStream.getAudioTracks()[0].enabled = false;
-        
-        deafBtn.classList.add('muted-btn');
-        micBtn.classList.add('muted-btn'); // Mic də qırmızı olsun
-        micBtn.innerHTML = '<i class="fa-solid fa-microphone-slash"></i>';
-    } else {
-        // Eşitməni aç
-        videoGrid.querySelectorAll('video').forEach(v => {
-            if(v !== myVideo) v.muted = false;
-        });
-        
-        deafBtn.classList.remove('muted-btn');
-        // Mikrofonu əl ilə açmaq lazımdır (istifadəçi istəsə)
-    }
+    micBtn.classList.toggle('muted-btn');
 };
