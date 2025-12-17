@@ -12,6 +12,18 @@
 </head>
 <body>
 
+    <div id="password-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Şifrəli Otaq <i class="fa-solid fa-lock"></i></h3>
+            <p>Bu otağa girmək üçün şifrəni daxil edin:</p>
+            <input type="password" id="join-password-input" placeholder="Şifrə...">
+            <div class="modal-actions">
+                <button id="cancel-join-btn">Ləğv et</button>
+                <button id="confirm-join-btn" class="primary-btn">Daxil Ol</button>
+            </div>
+        </div>
+    </div>
+
     <div id="context-menu" class="context-menu hidden">
         <div class="menu-header">Seçimlər <i id="close-context" class="fa-solid fa-xmark"></i></div>
         <div class="menu-item" id="kick-option">
@@ -37,6 +49,11 @@
                     <div class="input-group">
                         <i class="fa-solid fa-door-open"></i>
                         <input type="text" id="room-name" placeholder="Otaq adı...">
+                    </div>
+
+                    <div class="input-group">
+                        <i class="fa-solid fa-key"></i>
+                        <input type="password" id="room-password" placeholder="Şifrə (Boş ola bilər)">
                     </div>
 
                     <div class="slider-group">
@@ -82,6 +99,9 @@
                 </button>
                 <button id="mic-btn" class="control-btn">
                     <i class="fa-solid fa-microphone"></i>
+                </button>
+                <button id="screen-share-btn" class="control-btn">
+                    <i class="fa-solid fa-desktop"></i>
                 </button>
             </div>
 
