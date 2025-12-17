@@ -12,6 +12,10 @@
 </head>
 <body>
 
+    <div id="context-menu" class="context-menu hidden">
+        <div class="menu-item" id="kick-option">Qov (Kick) <i class="fa-solid fa-ban"></i></div>
+    </div>
+
     <div id="lobby-container">
         <div class="main-card">
             <div class="create-section">
@@ -19,36 +23,49 @@
                 <input type="text" id="username" placeholder="Adınız (@username)...">
                 <div class="create-box">
                     <input type="text" id="room-name" placeholder="OTAQ ADI...">
-                    
                     <div class="slider-container">
                         <label>Nəfər sayı: <span id="limit-val">2</span></label>
                         <input type="range" id="limit-slider" min="2" max="8" value="2">
                     </div>
-                    
+                    <div class="select-container">
+                         <label><i class="fa-solid fa-microphone"></i> Cihaz:</label>
+                         <select id="mic-select"></select>
+                    </div>
                     <button id="create-btn">OTAQ YARAD</button>
                 </div>
             </div>
-
             <div class="list-section">
-                <div id="rooms-list">
-                    </div>
+                <div id="rooms-list"></div>
             </div>
         </div>
     </div>
 
     <div id="room-container" class="hidden">
-        <div class="room-header">
-            <h2 id="active-room-name">Otaq Adı</h2>
-        </div>
-        
-        <div id="video-grid">
+        <div class="room-main">
+            <div class="room-header">
+                <h2 id="active-room-name">Otaq</h2>
             </div>
+            <div id="video-grid"></div>
+            <div class="controls-bar">
+                <button id="leave-btn" class="red-btn">ÇIX</button>
+                <div class="audio-controls">
+                    <button id="headphone-btn" class="icon-btn"><i class="fa-solid fa-headphones"></i></button>
+                    <button id="mic-btn" class="icon-btn"><i class="fa-solid fa-microphone"></i></button>
+                    <button id="chat-toggle-btn" class="icon-btn"><i class="fa-solid fa-message"></i></button>
+                </div>
+            </div>
+        </div>
 
-        <div class="controls-bar">
-            <button id="leave-btn" class="red-btn">SƏSDƏN ÇIX</button>
-            <div class="audio-controls">
-                <button id="headphone-btn" class="icon-btn"><i class="fa-solid fa-headphones"></i></button>
-                <button id="mic-btn" class="icon-btn"><i class="fa-solid fa-microphone"></i></button>
+        <div id="chat-sidebar" class="chat-sidebar collapsed">
+            <div class="chat-header">
+                <h3>Söhbət</h3>
+                <button id="close-chat"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="chat-messages">
+                </div>
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Mesaj yaz...">
+                <button id="send-msg-btn"><i class="fa-solid fa-paper-plane"></i></button>
             </div>
         </div>
     </div>
