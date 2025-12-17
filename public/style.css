@@ -4,7 +4,7 @@
     --input-bg: #2b2d31;
     --text-main: #ffffff;
     --text-muted: #949ba4;
-    --accent: #5865F2; /* Discord Blue */
+    --accent: #5865F2;
     --accent-hover: #4752c4;
     --danger: #da373c;
     --success: #23a559;
@@ -14,18 +14,19 @@
     box-sizing: border-box;
     margin: 0;
     padding: 0;
-    font-family: 'gg sans', 'Segoe UI', sans-serif; /* Discord-a bənzər font */
+    font-family: 'gg sans', 'Segoe UI', sans-serif;
 }
 
 body {
     background-color: var(--bg-color);
     color: var(--text-main);
     height: 100vh;
-    overflow: hidden; /* Scrollu bağla */
+    height: 100dvh;
+    overflow: hidden;
 }
 
-/* Ümumi Klasslar */
 .hidden { display: none !important; }
+
 .screen-container {
     width: 100%;
     height: 100%;
@@ -33,16 +34,17 @@ body {
     flex-direction: column;
 }
 
-/* --- LOBBY DİZAYNI --- */
 #lobby-container {
     align-items: center;
     justify-content: center;
     padding: 20px;
+    overflow-y: auto;
 }
 
 .logo-area {
     text-align: center;
     margin-bottom: 20px;
+    flex-shrink: 0;
 }
 .logo-area h1 { font-size: 2.5rem; letter-spacing: 2px; }
 .logo-area p { color: var(--text-muted); }
@@ -58,7 +60,6 @@ body {
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 
-/* Sol Tərəf (Yarat) */
 .create-section {
     flex: 1;
     padding: 30px;
@@ -68,7 +69,6 @@ body {
     gap: 15px;
 }
 
-/* Sağ Tərəf (Siyahı) */
 .list-section {
     flex: 1;
     padding: 30px;
@@ -85,7 +85,6 @@ h3 {
     font-weight: bold; 
 }
 
-/* Inputlar */
 .input-group {
     background: var(--input-bg);
     border-radius: 8px;
@@ -144,13 +143,11 @@ select {
 }
 .primary-btn:hover { background: var(--accent-hover); }
 
-/* Otaq Siyahısı */
 .scrollable-list {
     flex: 1;
     overflow-y: auto;
     padding-right: 5px;
 }
-/* Scrollbar Dizaynı */
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: #121212; border-radius: 4px; }
 
@@ -178,10 +175,10 @@ select {
 }
 .join-btn:disabled { background: #3c4046; cursor: not-allowed; opacity: 0.6; }
 
-/* --- OTAQ DAXİLİ --- */
 #room-container {
     background: #000;
     position: relative;
+    height: 100dvh;
 }
 
 .room-header-bar {
@@ -202,7 +199,6 @@ select {
     font-weight: bold;
 }
 
-/* Video Grid */
 #video-grid {
     width: 100%;
     height: 100%;
@@ -211,7 +207,8 @@ select {
     align-items: center;
     flex-wrap: wrap;
     gap: 10px;
-    padding: 60px 20px 100px 20px; /* Üst və Alt panellər üçün yer */
+    padding: 70px 10px 100px 10px;
+    overflow-y: auto;
 }
 
 .user-card {
@@ -243,10 +240,9 @@ select {
 .speaking { border-color: var(--success) !important; box-shadow: 0 0 15px var(--success); }
 .user-name { font-size: 14px; font-weight: 500; }
 
-/* Alt Panel */
 .controls-bar {
     position: absolute;
-    bottom: 20px;
+    bottom: 30px;
     left: 50%;
     transform: translateX(-50%);
     background: var(--card-bg);
@@ -255,8 +251,10 @@ select {
     display: flex;
     align-items: center;
     gap: 15px;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.8);
     z-index: 20;
+    width: auto;
+    max-width: 90%;
 }
 
 .control-btn {
@@ -270,13 +268,26 @@ select {
     cursor: pointer;
     transition: 0.2s;
     position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .control-btn:hover { background: #40444b; }
 .red-btn { background: var(--danger); }
 .red-btn:hover { background: #a1282c; }
 .muted-btn { background: white !important; color: black !important; }
 
-/* --- CHAT (Mobil Uyğun) --- */
+#chat-badge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    background: var(--danger);
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid var(--card-bg);
+}
+
 .chat-sidebar {
     position: absolute;
     right: 0;
@@ -312,6 +323,7 @@ select {
     border-radius: 8px;
     font-size: 14px;
     max-width: 80%;
+    word-wrap: break-word;
 }
 .my-msg {
     background: var(--accent);
@@ -322,6 +334,7 @@ select {
     background: #18191c;
     display: flex;
     gap: 10px;
+    padding-bottom: 30px;
 }
 #chat-input {
     flex: 1;
@@ -340,7 +353,6 @@ select {
     cursor: pointer;
 }
 
-/* Context Menu */
 .context-menu {
     position: absolute;
     background: #18191c;
@@ -369,12 +381,7 @@ select {
 }
 .menu-item:hover { background: #2f3136; }
 
-/* =========================================
-   MOBİL RESPONSİV HİSSƏSİ (MEDIA QUERIES)
-   ========================================= */
-
 @media screen and (max-width: 768px) {
-    /* Lobby Kartını ekrana sığdır */
     .lobby-card {
         flex-direction: column;
         width: 100%;
@@ -389,40 +396,24 @@ select {
         margin-bottom: 20px;
         padding: 20px;
     }
-
-    #lobby-container {
-        padding: 10px;
-        overflow-y: auto;
-        display: block; /* Flex-i ləğv et ki scroll işləsin */
-    }
     
-    .logo-area { margin-top: 20px; }
-
-    /* Otaq Grid */
-    #video-grid {
-        padding-top: 80px;
-        align-content: flex-start;
-    }
     .user-card {
-        width: 45%; /* Ekranda 2 dənə yerləşsin */
+        width: 45%;
         height: 120px;
     }
-    .avatar { width: 50px; height: 50px; }
-
-    /* Alt Panel */
+    
     .controls-bar {
-        width: 90%;
+        width: 95%;
+        bottom: 20px;
+        padding: 8px 15px;
         justify-content: space-between;
-        padding: 10px 15px;
-        bottom: 15px;
     }
     
-    /* Chat Mobil */
     .chat-sidebar {
-        width: 100%; /* Tam ekran açılsin */
+        width: 100%;
         border-top-left-radius: 20px;
         border-top-right-radius: 20px;
-        top: 100px; /* Üstdən biraz aşağı */
-        height: calc(100% - 100px);
+        top: 60px;
+        height: calc(100% - 60px);
     }
 }
