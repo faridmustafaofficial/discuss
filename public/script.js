@@ -3,425 +3,438 @@ const myPeer = new Peer(undefined, {
     config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
 });
 
-// Elementlər
-const lobby = document.getElementById('lobby-container');
-const roomDiv = document.getElementById('room-container');
-const roomsList = document.getElementById('rooms-list');
-const videoGrid = document.getElementById('video-grid');
-const micSelect = document.getElementById('mic-select');
-const passwordModal = document.getElementById('password-modal');
-
-// Statuslar
-const peers = {}; 
+// GLOBAL STATES
+const peers = {}; // Call Objectləri
 let myStream;
-let currentRoomId = null;
-let iamAdmin = false;
-let isVideoOn = false;
-let isScreenSharing = false;
-let isMicMuted = false;
-let isDeafened = false;
-let audioContext; 
+let myPeerId;
+let currentRoom = null;
+let isAdmin = false;
+let isVideo = false;
+let isScreen = false;
+let isMuted = false;
+let isDeaf = false;
+let audioCtx;
 
-// Cihazları yüklə
-async function getCameras() {
+// DOM ELEMENTLƏRİ
+const views = {
+    lobby: document.getElementById('lobby-screen'),
+    room: document.getElementById('room-screen'),
+    roomList: document.getElementById('rooms-list'),
+    videoGrid: document.getElementById('video-grid'),
+    chat: document.getElementById('chat-sidebar'),
+    micSelect: document.getElementById('mic-select')
+};
+
+// 1. CİHAZLARI YÜKLƏ
+async function initDevices() {
     try {
         await navigator.mediaDevices.getUserMedia({ audio: true });
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const inputs = devices.filter(d => d.kind === 'audioinput');
-        micSelect.innerHTML = '';
-        inputs.forEach(d => {
+        const devs = await navigator.mediaDevices.enumerateDevices();
+        views.micSelect.innerHTML = '';
+        devs.filter(d => d.kind === 'audioinput').forEach(d => {
             const opt = document.createElement('option');
             opt.value = d.deviceId;
-            opt.text = d.label || `Mic ${micSelect.length+1}`;
-            micSelect.appendChild(opt);
+            opt.text = d.label || `Mikrofon ${views.micSelect.length+1}`;
+            views.micSelect.appendChild(opt);
         });
-    } catch(e) {}
+    } catch(e) { console.log("Mic icazəsi yoxdur"); }
 }
-getCameras();
+initDevices();
 
-// --- BUTTON LOGIC ---
+// 2. SOCKET DINLƏYİCİLƏRİ
+socket.on('room-list', renderRooms);
+socket.on('room-created', id => joinRoom(id, document.getElementById('room-name').value));
+socket.on('admin-status', s => isAdmin = s);
+socket.on('receive-message', d => addMessage(d.user, d.msg, false));
+socket.on('kicked', () => location.reload());
+socket.on('user-disconnected', removeUser);
+socket.on('participants', users => {
+    users.forEach(u => {
+        if(u.id !== myPeerId) addUserCard(u.id, u.name, false);
+    });
+});
 
-// Otaq Yarat
+socket.on('user-connected', (id, name) => {
+    // Yeni gələnə zəng et
+    connectToNewUser(id, name, myStream);
+});
+
+// PeerJS - Mənə zəng gələndə
+myPeer.on('open', id => myPeerId = id);
+myPeer.on('call', call => {
+    call.answer(myStream);
+    
+    // Qarşı tərəfin stream-i gələndə
+    call.on('stream', userStream => {
+        addUserCard(call.peer, "User", false); // Kart yoxdursa yarat
+        setRemoteStream(call.peer, userStream);
+    });
+    peers[call.peer] = call;
+});
+
+
+// 3. UI EVENTLƏRİ
+document.getElementById('limit-slider').oninput = function() {
+    document.getElementById('limit-display').innerText = this.value;
+}
+
 document.getElementById('create-btn').onclick = () => {
-    const name = document.getElementById('room-name').value;
     const user = document.getElementById('username').value;
-    const pass = document.getElementById('room-password').value;
+    const name = document.getElementById('room-name').value;
+    const pass = document.getElementById('room-pass').value;
     const limit = document.getElementById('limit-slider').value;
-    if(name && user) socket.emit('create-room', { roomName: name, limit, username: user, password: pass });
+    
+    if(!user || !name) return alert("Ad və Otaq adı vacibdir!");
+    socket.emit('create-room', { user, name, pass, limit });
 };
 
-// Slider UI
-document.getElementById('limit-slider').oninput = function() {
-    document.getElementById('limit-val').innerText = this.value;
-}
-
-// Çıxış
 document.getElementById('leave-btn').onclick = () => location.reload();
 
-// KAMERA TOGGLE
-document.getElementById('camera-btn').onclick = async () => {
-    if(isScreenSharing) return alert("Əvvəlcə ekran paylaşımını dayandırın.");
-    
-    isVideoOn = !isVideoOn;
-    const btn = document.getElementById('camera-btn');
-    
-    if(isVideoOn) {
-        btn.classList.add('active-btn');
-        const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        replaceStream(videoStream);
-    } else {
-        btn.classList.remove('active-btn');
-        // Yalnız audioya qayıt
-        const audioStream = await navigator.mediaDevices.getUserMedia({ 
-            audio: { deviceId: micSelect.value ? { exact: micSelect.value } : undefined }, 
-            video: false 
-        });
-        replaceStream(audioStream);
-    }
-    // Özümüzdə videonu göstər/gizlət
-    toggleLocalVideo(isVideoOn);
+// Chat Toggle
+document.getElementById('chat-btn').onclick = () => {
+    views.chat.classList.toggle('collapsed');
+    document.getElementById('chat-badge').classList.add('hidden');
 };
+document.getElementById('close-chat').onclick = () => views.chat.classList.add('collapsed');
 
-// EKRAN PAYLAŞIMI (Toggle)
-document.getElementById('screen-share-btn').onclick = async () => {
-    const btn = document.getElementById('screen-share-btn');
-    const camBtn = document.getElementById('camera-btn');
+// Mesaj Göndər
+document.getElementById('send-msg').onclick = sendMessage;
+document.getElementById('chat-input').onkeypress = e => { if(e.key==='Enter') sendMessage() };
 
-    if(isScreenSharing) {
-        // Stop Sharing
-        isScreenSharing = false;
-        btn.classList.remove('active-btn');
-        
-        // Əgər kamera açıq idisə kameraya qayıt, yoxsa sadəcə səsə
-        if(isVideoOn) {
-            const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            replaceStream(videoStream);
-            toggleLocalVideo(true);
-        } else {
-            const audioStream = await navigator.mediaDevices.getUserMedia({ 
-                audio: { deviceId: micSelect.value ? { exact: micSelect.value } : undefined }, 
-                video: false 
-            });
-            replaceStream(audioStream);
-            toggleLocalVideo(false);
-        }
-    } else {
-        // Start Sharing
-        try {
-            const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-            isScreenSharing = true;
-            btn.classList.add('active-btn');
-            camBtn.classList.remove('active-btn'); // Kamera iconunu söndür (vizual)
-            
-            replaceStream(screenStream);
-            toggleLocalVideo(true); // Ekranda göstər
-
-            // Brauzerin öz "Stop" düyməsinə basanda
-            screenStream.getVideoTracks()[0].onended = () => {
-                document.getElementById('screen-share-btn').click();
-            };
-        } catch(e) {
-            console.log("Ekran paylaşımı ləğv edildi");
-        }
-    }
-};
-
-// Stream dəyişmə funksiyası (Track replacement)
-function replaceStream(newStream) {
-    const videoTrack = newStream.getVideoTracks()[0];
-    const audioTrack = newStream.getAudioTracks()[0];
-
-    // Audio statusunu qoru
-    if(audioTrack) audioTrack.enabled = !isMicMuted;
-
-    for (let peerId in peers) {
-        const sender = peers[peerId].peerConnection.getSenders().find(s => s.track.kind === 'video');
-        if(sender && videoTrack) sender.replaceTrack(videoTrack);
-        
-        const audioSender = peers[peerId].peerConnection.getSenders().find(s => s.track.kind === 'audio');
-        if(audioSender && audioTrack) audioSender.replaceTrack(audioTrack);
-    }
-    myStream = newStream;
+function sendMessage() {
+    const inp = document.getElementById('chat-input');
+    const txt = inp.value.trim();
+    if(!txt) return;
+    const user = document.getElementById('username').value;
+    addMessage(user, txt, true);
+    socket.emit('send-message', txt, currentRoom, user);
+    inp.value = '';
 }
 
-// Öz video elementimizi idarə etmək
-function toggleLocalVideo(show) {
-    const myVid = document.getElementById(`video-${myPeer.id}`);
-    const myAv = document.getElementById(`avatar-${myPeer.id}`);
-    if(myVid && myAv) {
-        if(show) {
-            myVid.srcObject = myStream;
-            myVid.style.display = 'block';
-            myAv.style.display = 'none';
-        } else {
-            myVid.style.display = 'none';
-            myAv.style.display = 'flex';
-        }
-    }
-}
+// Media Butonları
+document.getElementById('mic-btn').onclick = toggleMic;
+document.getElementById('deaf-btn').onclick = toggleDeaf;
+document.getElementById('cam-btn').onclick = toggleCam;
+document.getElementById('screen-btn').onclick = toggleScreen;
 
 
-// --- SOCKET & ROOMS ---
+// 4. CORE FUNKSİYALAR (Join & Stream)
 
-socket.on('room-list', (rooms) => {
-    roomsList.innerHTML = '';
+// Otaq Siyahısını Çək
+function renderRooms(rooms) {
+    views.roomList.innerHTML = '';
     Object.values(rooms).forEach(r => {
         const div = document.createElement('div');
         div.className = 'room-item';
         div.innerHTML = `
-            <div><b>${r.name}</b> ${r.hasPassword ? '<i class="fa-solid fa-lock"></i>' : ''}</div>
-            <button class="join-btn" onclick="preJoin('${r.id}', '${r.name}', ${r.hasPassword})">GİR</button>
+            <div>
+                <div class="room-name">${r.name} ${r.hasPass ? '<i class="fa-solid fa-lock"></i>' : ''}</div>
+                <div class="room-meta"><i class="fa-solid fa-users"></i> ${r.count}/${r.limit}</div>
+            </div>
+            <button class="join-btn" onclick="preJoin('${r.id}', '${r.name}', ${r.hasPass})">GİR</button>
         `;
-        roomsList.appendChild(div);
+        views.roomList.appendChild(div);
     });
-});
+}
 
-let tempRoomId = null;
+// Giriş Yoxlanışı
+let tempJoinId = null;
 window.preJoin = (id, name, hasPass) => {
     const user = document.getElementById('username').value;
-    if(!user) return alert("Ad yazın!");
-    tempRoomId = id;
+    if(!user) return alert("Zəhmət olmasa adınızı yazın!");
+    
     if(hasPass) {
-        passwordModal.classList.remove('hidden');
+        tempJoinId = id;
+        document.getElementById('password-modal').classList.remove('hidden');
     } else {
-        checkAndJoin(id, null, name);
+        joinRoom(id, name);
     }
 };
 
-document.getElementById('confirm-join-btn').onclick = () => {
-    const pwd = document.getElementById('join-password-input').value;
-    checkAndJoin(tempRoomId, pwd, "Room");
-    passwordModal.classList.add('hidden');
-};
-document.getElementById('cancel-join-btn').onclick = () => passwordModal.classList.add('hidden');
-
-function checkAndJoin(id, pwd, name) {
-    socket.emit('check-room', id, pwd, (res) => {
-        if(res.success) enterRoom(id, name);
-        else alert(res.msg);
+document.getElementById('modal-confirm').onclick = () => {
+    const pass = document.getElementById('modal-pass').value;
+    socket.emit('check-room', tempJoinId, pass, res => {
+        if(res.success) {
+            document.getElementById('password-modal').classList.add('hidden');
+            joinRoom(tempJoinId, "Room");
+        } else alert(res.msg);
     });
-}
+};
+document.getElementById('modal-cancel').onclick = () => document.getElementById('password-modal').classList.add('hidden');
 
-function enterRoom(id, name) {
-    currentRoomId = id;
+
+// Otağa Daxil Ol
+function joinRoom(id, name) {
+    currentRoom = id;
     const user = document.getElementById('username').value;
-    lobby.classList.add('hidden');
-    roomDiv.classList.remove('hidden');
-    document.getElementById('active-room-name').innerText = name;
+    
+    views.lobby.classList.add('hidden');
+    views.room.classList.remove('hidden');
+    document.getElementById('current-room-name').innerText = name;
 
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    // Audio Context (Visualizer üçün)
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-    navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: micSelect.value ? { exact: micSelect.value } : undefined },
-        video: false
+    // Mikrofonu Aç
+    const micId = views.micSelect.value;
+    navigator.mediaDevices.getUserMedia({ 
+        audio: { deviceId: micId ? { exact: micId } : undefined }, 
+        video: false 
     }).then(stream => {
         myStream = stream;
-        addParticipant(myPeer.id, user, true, stream);
-
-        myPeer.on('call', call => {
-            call.answer(stream);
-            const vid = document.createElement('video');
-            call.on('stream', userStream => {
-                // Video stream gələndə avtomatik göstər
-                addVideoStream(vid, userStream, call.peer);
-            });
-            peers[call.peer] = call;
-        });
-
-        socket.on('user-connected', (uid, uname) => {
-            const call = myPeer.call(uid, stream);
-            const vid = document.createElement('video');
-            call.on('stream', userStream => {
-                addVideoStream(vid, userStream, uid);
-            });
-            peers[uid] = call;
-            addParticipant(uid, uname, false);
-        });
-
-        socket.emit('join-room', id, myPeer.id, user);
+        addUserCard(myPeerId, user, true); // Öz kartım
+        
+        // Serverə bildir
+        socket.emit('join-room', id, myPeerId, user);
     });
 }
 
-socket.on('current-participants', (users) => {
-    users.forEach(u => {
-        if(u.id !== myPeer.id) addParticipant(u.id, u.name, false);
-    });
-});
-
-socket.on('user-disconnected', id => {
-    if(peers[id]) peers[id].close();
-    const el = document.getElementById(`card-${id}`);
-    if(el) el.remove();
-});
-
-socket.on('admin-status', s => iamAdmin = s);
-socket.on('kicked-notification', () => location.reload());
-
-// --- UI FUNKSİYALARI ---
-
-function addParticipant(id, name, isMe, stream=null) {
-    if(document.getElementById(`card-${id}`)) return;
+// User Kartı Yarat (Video + Audio + Visualizer)
+function addUserCard(id, name, isMe) {
+    if(document.getElementById(`user-${id}`)) return;
 
     const div = document.createElement('div');
     div.className = 'user-card';
-    div.id = `card-${id}`;
+    div.id = `user-${id}`;
     
     let menuHtml = '';
     if(!isMe) {
-        menuHtml = `
-            <div class="menu-dots" onclick="toggleMenu('${id}')">⋮</div>
-            <div id="menu-${id}" class="dropdown-menu">
-                <div class="dropdown-item" onclick="kickUser('${id}')">Qov (Kick)</div>
-            </div>
-        `;
+        menuHtml = `<div class="menu-dots" onclick="toggleKickMenu('${id}')">⋮</div>
+                    <div id="kick-${id}" class="kick-menu"><button class="kick-btn" onclick="kick('${id}')">Qov</button></div>`;
     }
 
     div.innerHTML = `
-        <video id="video-${id}" autoplay playsinline muted></video>
-        <div id="avatar-${id}" class="avatar"><i class="fa-solid fa-microphone"></i></div>
+        <video id="vid-${id}" autoplay playsinline muted></video>
+        <div id="av-${id}" class="avatar"><i class="fa-solid fa-microphone"></i></div>
         <div class="user-name">${name}</div>
+        <canvas id="cvs-${id}" class="visualizer"></canvas>
         ${menuHtml}
-        <canvas class="visualizer-canvas"></canvas>
     `;
-    videoGrid.appendChild(div);
+    views.videoGrid.appendChild(div);
 
-    if(stream) {
-        setupVisualizer(stream, div.querySelector('canvas'));
-        const vid = div.querySelector('video');
-        vid.srcObject = stream;
-        vid.style.display = 'none'; // Başlanğıcda video yoxdur
+    if(isMe) {
+        // Öz streamimi vizualizatora qoş
+        attachVisualizer(myStream, document.getElementById(`cvs-${id}`));
     }
 }
 
-// 3 Nöqtə Menyu Funksiyaları
-window.toggleMenu = (id) => {
-    if(!iamAdmin) return;
-    const menu = document.getElementById(`menu-${id}`);
-    // Digər bütün menyuları bağla
-    document.querySelectorAll('.dropdown-menu').forEach(m => {
-        if(m !== menu) m.classList.remove('show');
+// Digər istifadəçiyə qoşul
+function connectToNewUser(userId, userName, stream) {
+    addUserCard(userId, userName, false);
+    const call = myPeer.call(userId, stream);
+    
+    call.on('stream', userStream => {
+        setRemoteStream(userId, userStream);
     });
-    menu.classList.toggle('show');
-};
-window.kickUser = (id) => {
-    socket.emit('kick-user', id);
-};
-// Boş yerə basanda menyunu bağla
-document.addEventListener('click', (e) => {
-    if(!e.target.closest('.user-card')) {
-        document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
-    }
-});
-
-
-function addVideoStream(video, stream, id) {
-    const card = document.getElementById(`card-${id}`);
-    if(!card) return; // Kart hələ yaranmayıb (gecikmə)
-
-    // Əgər videonun içində köhnə video varsa silmə, source dəyiş
-    const existingVideo = document.getElementById(`video-${id}`);
-    existingVideo.srcObject = stream;
-    
-    // Vizualizatoru yenilə
-    setupVisualizer(stream, card.querySelector('canvas'));
-
-    // Video trackın aktiv olub olmadığını yoxla
-    checkVideoStatus(stream, id);
-    
-    // Track dəyişəndə (ekranı aç/bağla) statusu yoxla
-    stream.getVideoTracks()[0].onmute = () => checkVideoStatus(stream, id);
-    stream.getVideoTracks()[0].onunmute = () => checkVideoStatus(stream, id);
-    stream.getVideoTracks()[0].onended = () => checkVideoStatus(stream, id);
+    peers[userId] = call;
 }
 
-function checkVideoStatus(stream, id) {
-    const videoTrack = stream.getVideoTracks()[0];
-    const vidEl = document.getElementById(`video-${id}`);
-    const avEl = document.getElementById(`avatar-${id}`);
-    
-    if (videoTrack && videoTrack.enabled && videoTrack.readyState === 'live') {
-        vidEl.style.display = 'block';
-        avEl.style.display = 'none';
-    } else {
-        vidEl.style.display = 'none';
-        avEl.style.display = 'flex';
-    }
-}
-
-// Visualizer (Bottom Bar)
-function setupVisualizer(stream, canvas) {
-    if(!audioContext) return;
-    const src = audioContext.createMediaStreamSource(stream);
-    const anl = audioContext.createAnalyser();
-    src.connect(anl);
-    anl.fftSize = 64;
-    const len = anl.frequencyBinCount;
-    const data = new Uint8Array(len);
-    const ctx = canvas.getContext('2d');
-
-    function draw() {
-        requestAnimationFrame(draw);
-        anl.getByteFrequencyData(data);
-        ctx.clearRect(0,0,canvas.width,canvas.height);
+// Gələn stream-i elementə bağla
+function setRemoteStream(id, stream) {
+    const vid = document.getElementById(`vid-${id}`);
+    const cvs = document.getElementById(`cvs-${id}`);
+    if(vid) {
+        vid.srcObject = stream;
+        checkVideoState(stream, id);
         
-        const barW = canvas.width / len;
-        let x = 0;
-        for(let i=0; i<len; i++) {
-            const h = (data[i] / 255) * canvas.height; // Düzgün hündürlük
-            ctx.fillStyle = '#5865F2';
-            ctx.fillRect(x, canvas.height - h, barW, h);
-            x += barW;
-        }
+        // Track dəyişəndə (ekran/kamera) yoxla
+        stream.getVideoTracks()[0]?.addEventListener('mute', () => checkVideoState(stream, id));
+        stream.getVideoTracks()[0]?.addEventListener('unmute', () => checkVideoState(stream, id));
+        
+        if(cvs) attachVisualizer(stream, cvs);
     }
-    draw();
 }
 
-// CHAT UI
-document.getElementById('chat-toggle-btn').onclick = () => {
-    document.getElementById('chat-sidebar').classList.toggle('collapsed');
-    document.getElementById('chat-badge').classList.add('hidden');
-};
-document.getElementById('close-chat').onclick = () => {
-    document.getElementById('chat-sidebar').classList.add('collapsed');
-};
-document.getElementById('send-msg-btn').onclick = () => {
-    const inp = document.getElementById('chat-input');
-    const txt = inp.value;
-    const usr = document.getElementById('username').value;
-    if(txt) {
-        socket.emit('send-message', txt, currentRoomId, usr);
-        addMsg(usr, txt, true);
-        inp.value = '';
+// Video varmı yoxla (Avatar vs Video)
+function checkVideoState(stream, id) {
+    const track = stream.getVideoTracks()[0];
+    const card = document.getElementById(`user-${id}`);
+    if(track && track.enabled && track.readyState === 'live' && !track.muted) {
+        card.classList.add('video-active');
+    } else {
+        card.classList.remove('video-active');
     }
+}
+
+// User çıxanda
+function removeUser(id) {
+    if(peers[id]) peers[id].close();
+    const el = document.getElementById(`user-${id}`);
+    if(el) el.remove();
+}
+
+
+// 5. MEDİA KONTROLLARI (Track Replacement Logic)
+
+async function toggleCam() {
+    if(isScreen) return alert("Əvvəlcə ekran paylaşımını dayandırın!");
+    isVideo = !isVideo;
+    
+    const btn = document.getElementById('cam-btn');
+    btn.classList.toggle('active', isVideo);
+
+    if(isVideo) {
+        const vStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        replaceTracks(vStream);
+        document.getElementById(`vid-${myPeerId}`).srcObject = vStream;
+        document.getElementById(`user-${myPeerId}`).classList.add('video-active');
+    } else {
+        revertToMic();
+    }
+}
+
+async function toggleScreen() {
+    if(isScreen) {
+        // Stop
+        isScreen = false;
+        document.getElementById('screen-btn').classList.remove('active');
+        if(isVideo) toggleCam(); // Videoya qayıt
+        else revertToMic();
+    } else {
+        // Start
+        try {
+            const sStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+            isScreen = true;
+            document.getElementById('screen-btn').classList.add('active');
+            
+            replaceTracks(sStream);
+            document.getElementById(`vid-${myPeerId}`).srcObject = sStream;
+            document.getElementById(`user-${myPeerId}`).classList.add('video-active');
+
+            // Brauzerdən dayandıranda
+            sStream.getVideoTracks()[0].onended = () => document.getElementById('screen-btn').click();
+        } catch(e) {}
+    }
+}
+
+function toggleMic() {
+    if(isDeaf) return;
+    isMuted = !isMuted;
+    myStream.getAudioTracks()[0].enabled = !isMuted;
+    
+    const btn = document.getElementById('mic-btn');
+    if(isMuted) {
+        btn.classList.add('off');
+        btn.innerHTML = '<i class="fa-solid fa-microphone-slash"></i>';
+    } else {
+        btn.classList.remove('off');
+        btn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+    }
+}
+
+function toggleDeaf() {
+    isDeaf = !isDeaf;
+    isMuted = isDeaf; // Qulaqlıq bağlananda mik də bağlanır
+    myStream.getAudioTracks()[0].enabled = !isMuted;
+    
+    const dBtn = document.getElementById('deaf-btn');
+    const mBtn = document.getElementById('mic-btn');
+    
+    dBtn.classList.toggle('off');
+    mBtn.classList.toggle('off', isMuted);
+    
+    // Gələn səsləri bağla
+    document.querySelectorAll('video').forEach(v => {
+        if(v.id !== `vid-${myPeerId}`) v.muted = isDeaf;
+    });
+}
+
+// Köməkçi: Stream-i Mikrofonla əvəz et
+async function revertToMic() {
+    const micId = views.micSelect.value;
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: { deviceId: micId ? { exact: micId } : undefined }, 
+        video: false 
+    });
+    replaceTracks(stream);
+    document.getElementById(`user-${myPeerId}`).classList.remove('video-active');
+}
+
+// Köməkçi: Peer Connection-da Track-i dəyiş
+function replaceTracks(newStream) {
+    const vTrack = newStream.getVideoTracks()[0];
+    const aTrack = newStream.getAudioTracks()[0];
+    
+    if(aTrack) aTrack.enabled = !isMuted;
+    
+    for(let id in peers) {
+        const senderV = peers[id].peerConnection.getSenders().find(s => s.track?.kind === 'video');
+        const senderA = peers[id].peerConnection.getSenders().find(s => s.track?.kind === 'audio');
+        
+        if(senderV && vTrack) senderV.replaceTrack(vTrack);
+        if(senderA && aTrack) senderA.replaceTrack(aTrack);
+    }
+    myStream = newStream;
+    // Öz vizualizatorumu yenilə
+    attachVisualizer(newStream, document.getElementById(`cvs-${myPeerId}`));
+}
+
+
+// 6. VISUALIZER & UI EXTRAS
+
+function attachVisualizer(stream, canvas) {
+    if(!audioCtx || !canvas) return;
+    try {
+        const src = audioCtx.createMediaStreamSource(stream);
+        const anl = audioCtx.createAnalyser();
+        src.connect(anl);
+        anl.fftSize = 64;
+        const len = anl.frequencyBinCount;
+        const data = new Uint8Array(len);
+        const ctx = canvas.getContext('2d');
+
+        const draw = () => {
+            requestAnimationFrame(draw);
+            anl.getByteFrequencyData(data);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            let avg = 0;
+            const width = canvas.width / len;
+            let x = 0;
+            
+            for(let i=0; i<len; i++) {
+                const h = (data[i] / 255) * canvas.height;
+                ctx.fillStyle = '#3ba55c';
+                ctx.fillRect(x, canvas.height - h, width, h);
+                x += width;
+                avg += data[i];
+            }
+            
+            // Avatar "talking" effekti
+            const userId = canvas.id.split('-')[1];
+            const av = document.getElementById(`av-${userId}`);
+            if(av) {
+                if(avg/len > 10) av.classList.add('talking');
+                else av.classList.remove('talking');
+            }
+        };
+        draw();
+    } catch(e) {}
+}
+
+// Kick Menu Logic
+window.toggleKickMenu = (id) => {
+    if(!isAdmin) return;
+    const m = document.getElementById(`kick-${id}`);
+    document.querySelectorAll('.kick-menu').forEach(x => {
+        if(x !== m) x.style.display = 'none';
+    });
+    m.style.display = (m.style.display === 'block') ? 'none' : 'block';
 };
-socket.on('receive-message', d => {
-    addMsg(d.username, d.message, false);
-    if(document.getElementById('chat-sidebar').classList.contains('collapsed'))
-        document.getElementById('chat-badge').classList.remove('hidden');
+window.kick = (id) => socket.emit('kick-user', id);
+
+// Menyunu bağla
+document.addEventListener('click', e => {
+    if(!e.target.closest('.user-card')) {
+        document.querySelectorAll('.kick-menu').forEach(m => m.style.display = 'none');
+    }
 });
-function addMsg(u, m, me) {
-    const box = document.getElementById('chat-messages');
-    const d = document.createElement('div');
-    d.className = `message ${me?'my-msg':''}`;
-    d.innerHTML = `<b>${me?'':u+':'}</b> ${m}`;
-    box.appendChild(d);
-    box.scrollTop = box.scrollHeight;
-}
 
-// MUTE/DEAF
-const mBtn = document.getElementById('mic-btn');
-const dBtn = document.getElementById('headphone-btn');
-mBtn.onclick = () => {
-    if(isDeafened) return;
-    isMicMuted = !isMicMuted;
-    myStream.getAudioTracks()[0].enabled = !isMicMuted;
-    mBtn.classList.toggle('muted-btn');
-};
-dBtn.onclick = () => {
-    isDeafened = !isDeafened;
-    isMicMuted = isDeafened;
-    myStream.getAudioTracks()[0].enabled = !isMicMuted;
-    dBtn.classList.toggle('muted-btn');
-    mBtn.classList.toggle('muted-btn', isMicMuted);
-    document.querySelectorAll('video').forEach(v => v.muted = isDeafened);
-};
+function addMessage(user, msg, me) {
+    const div = document.createElement('div');
+    div.className = `msg ${me?'mine':''}`;
+    div.innerHTML = `<b>${me?'':user}</b> ${msg}`;
+    views.chat.querySelector('#chat-messages').appendChild(div);
+    if(views.chat.classList.contains('collapsed')) 
+        document.getElementById('chat-badge').classList.remove('hidden');
+}
