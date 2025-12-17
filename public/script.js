@@ -4,7 +4,6 @@ const myPeer = new Peer(undefined, {
     config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
 });
 
-// Elementlər
 const lobbyContainer = document.getElementById('lobby-container');
 const roomContainer = document.getElementById('room-container');
 const roomsListEl = document.getElementById('rooms-list');
@@ -15,7 +14,6 @@ const micSelect = document.getElementById('mic-select');
 const contextMenu = document.getElementById('context-menu');
 const chatBadge = document.getElementById('chat-badge');
 
-// Dəyişənlər
 const peers = {}; 
 let myStream;
 let currentRoomId = null;
@@ -24,10 +22,9 @@ let isDeafened = false;
 let iamAdmin = false;
 let targetKickId = null;
 
-// --- CİHAZ SEÇİMİ ---
 async function getCameras() {
     try {
-        await navigator.mediaDevices.getUserMedia({ audio: true }); // İcazə istə
+        await navigator.mediaDevices.getUserMedia({ audio: true });
         const devices = await navigator.mediaDevices.enumerateDevices();
         const audioInputs = devices.filter(device => device.kind === 'audioinput');
         
@@ -44,7 +41,6 @@ async function getCameras() {
 }
 getCameras();
 
-// --- UI DÜYMƏLƏRİ ---
 document.getElementById('limit-slider').oninput = function() {
     document.getElementById('limit-val').innerText = this.value;
 }
@@ -59,10 +55,9 @@ document.getElementById('create-btn').onclick = () => {
 
 document.getElementById('leave-btn').onclick = () => window.location.reload();
 
-// Chat
 document.getElementById('chat-toggle-btn').onclick = () => {
     chatSidebar.classList.toggle('collapsed');
-    chatBadge.classList.add('hidden'); // Oxuyanda badge-i sil
+    chatBadge.classList.add('hidden');
 };
 document.getElementById('close-chat').onclick = () => chatSidebar.classList.add('collapsed');
 
@@ -89,8 +84,6 @@ function appendMessage(user, text, isMe) {
     messagesBox.appendChild(div);
     messagesBox.scrollTop = messagesBox.scrollHeight;
 }
-
-// --- SOCKET LOGIC ---
 
 socket.on('room-list', (rooms) => {
     roomsListEl.innerHTML = '';
@@ -129,7 +122,6 @@ socket.on('receive-message', ({ message, username }) => {
     appendMessage(username, message, false);
     if(chatSidebar.classList.contains('collapsed')) {
         chatBadge.classList.remove('hidden');
-        chatBadge.innerText = "!";
     }
 });
 
@@ -139,18 +131,15 @@ socket.on('kicked-notification', () => {
     location.reload();
 });
 
-// --- ROOM JOIN ---
-
 window.joinRoom = (roomId, roomName) => {
     const username = document.getElementById('username').value;
     if(!username) { alert("Ad daxil edin!"); return; }
     
     currentRoomId = roomId;
     lobbyContainer.classList.add('hidden');
-    roomContainer.classList.remove('hidden'); // Ekrani dəyiş
+    roomContainer.classList.remove('hidden');
     document.getElementById('active-room-name').innerText = roomName;
 
-    // Stream
     const selectedMic = micSelect.value;
     navigator.mediaDevices.getUserMedia({
         audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
@@ -190,8 +179,6 @@ socket.on('user-disconnected', userId => {
     if(el) el.remove();
 });
 
-// --- HELPER FUNCS ---
-
 function connectToNewUser(userId, stream, userName) {
     const call = myPeer.call(userId, stream);
     const video = document.createElement('video');
@@ -212,7 +199,6 @@ function addParticipantUi(userId, userName, isMe) {
         <div class="user-name">${userName}</div>
     `;
 
-    // Context Menu Logic
     if(!isMe) {
         div.addEventListener('contextmenu', (e) => {
             if(iamAdmin) {
@@ -243,7 +229,6 @@ function addVideoStream(video, stream) {
     videoGrid.append(video);
 }
 
-// Mute/Deafen
 const micBtn = document.getElementById('mic-btn');
 const deafBtn = document.getElementById('headphone-btn');
 
@@ -252,13 +237,11 @@ micBtn.onclick = () => {
     isMicMuted = !isMicMuted;
     myStream.getAudioTracks()[0].enabled = !isMicMuted;
     updateBtnStyle(micBtn, isMicMuted, '<i class="fa-solid fa-microphone"></i>', '<i class="fa-solid fa-microphone-slash"></i>');
-    
-    // UI-da öz avatarımda danışmadığımı göstər (Vizual effekt üçün gələcəkdə istifadə oluna bilər)
 };
 
 deafBtn.onclick = () => {
     isDeafened = !isDeafened;
-    isMicMuted = isDeafened; // Qulaqlıq bağlananda mik də bağlanır
+    isMicMuted = isDeafened;
     myStream.getAudioTracks()[0].enabled = !isMicMuted;
     
     updateBtnStyle(deafBtn, isDeafened, '<i class="fa-solid fa-headphones"></i>', '<i class="fa-solid fa-ear-deaf"></i>');
