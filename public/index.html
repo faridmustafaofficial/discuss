@@ -2,7 +2,7 @@
 <html lang="az">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>DISCUSS</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -13,58 +13,94 @@
 <body>
 
     <div id="context-menu" class="context-menu hidden">
-        <div class="menu-item" id="kick-option">Qov (Kick) <i class="fa-solid fa-ban"></i></div>
+        <div class="menu-header">Seçimlər <i id="close-context" class="fa-solid fa-xmark"></i></div>
+        <div class="menu-item" id="kick-option">
+            <span>Qov (Kick)</span> <i class="fa-solid fa-ban"></i>
+        </div>
     </div>
 
-    <div id="lobby-container">
-        <div class="main-card">
+    <div id="lobby-container" class="screen-container">
+        <div class="logo-area">
+            <h1>DISCUSS</h1>
+            <p>Səsli İcma Platforması</p>
+        </div>
+
+        <div class="lobby-card">
             <div class="create-section">
-                <h1>DISCUSS</h1>
-                <input type="text" id="username" placeholder="Adınız (@username)...">
+                <h3>Yeni Otaq</h3>
+                <div class="input-group">
+                    <i class="fa-solid fa-user"></i>
+                    <input type="text" id="username" placeholder="Ləqəbiniz (Məs: @ali)">
+                </div>
+                
                 <div class="create-box">
-                    <input type="text" id="room-name" placeholder="OTAQ ADI...">
-                    <div class="slider-container">
-                        <label>Nəfər sayı: <span id="limit-val">2</span></label>
+                    <div class="input-group">
+                        <i class="fa-solid fa-door-open"></i>
+                        <input type="text" id="room-name" placeholder="Otaq adı...">
+                    </div>
+
+                    <div class="slider-group">
+                        <label>Limit: <span id="limit-val">2</span> nəfər</label>
                         <input type="range" id="limit-slider" min="2" max="8" value="2">
                     </div>
-                    <div class="select-container">
-                         <label><i class="fa-solid fa-microphone"></i> Cihaz:</label>
+
+                    <div class="select-group">
+                         <label><i class="fa-solid fa-microphone"></i> Mikrofon:</label>
                          <select id="mic-select"></select>
                     </div>
-                    <button id="create-btn">OTAQ YARAD</button>
+
+                    <button id="create-btn" class="primary-btn">OTAQ YARAD</button>
                 </div>
             </div>
+
             <div class="list-section">
-                <div id="rooms-list"></div>
+                <h3>Aktiv Otaqlar</h3>
+                <div id="rooms-list" class="scrollable-list">
+                    </div>
             </div>
         </div>
     </div>
 
-    <div id="room-container" class="hidden">
-        <div class="room-main">
-            <div class="room-header">
-                <h2 id="active-room-name">Otaq</h2>
+    <div id="room-container" class="screen-container hidden">
+        
+        <div class="room-header-bar">
+            <h2 id="active-room-name">Otaq Adı</h2>
+            <div class="header-actions">
+                <span class="live-badge">CANLI</span>
             </div>
-            <div id="video-grid"></div>
-            <div class="controls-bar">
-                <button id="leave-btn" class="red-btn">ÇIX</button>
-                <div class="audio-controls">
-                    <button id="headphone-btn" class="icon-btn"><i class="fa-solid fa-headphones"></i></button>
-                    <button id="mic-btn" class="icon-btn"><i class="fa-solid fa-microphone"></i></button>
-                    <button id="chat-toggle-btn" class="icon-btn"><i class="fa-solid fa-message"></i></button>
-                </div>
+        </div>
+
+        <div id="video-grid">
             </div>
+
+        <div class="controls-bar">
+            <button id="leave-btn" class="control-btn red-btn">
+                <i class="fa-solid fa-phone-slash"></i>
+            </button>
+            
+            <div class="center-controls">
+                <button id="headphone-btn" class="control-btn">
+                    <i class="fa-solid fa-headphones"></i>
+                </button>
+                <button id="mic-btn" class="control-btn">
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+            </div>
+
+            <button id="chat-toggle-btn" class="control-btn">
+                <i class="fa-solid fa-message"></i>
+                <span id="chat-badge" class="hidden"></span>
+            </button>
         </div>
 
         <div id="chat-sidebar" class="chat-sidebar collapsed">
             <div class="chat-header">
                 <h3>Söhbət</h3>
-                <button id="close-chat"><i class="fa-solid fa-xmark"></i></button>
+                <button id="close-chat"><i class="fa-solid fa-chevron-down"></i></button>
             </div>
-            <div id="chat-messages">
-                </div>
+            <div id="chat-messages"></div>
             <div class="chat-input-area">
-                <input type="text" id="chat-input" placeholder="Mesaj yaz...">
+                <input type="text" id="chat-input" placeholder="Mesaj yaz..." autocomplete="off">
                 <button id="send-msg-btn"><i class="fa-solid fa-paper-plane"></i></button>
             </div>
         </div>
