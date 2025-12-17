@@ -1,0 +1,176 @@
+body {
+    background-color: #121212;
+    color: white;
+    font-family: 'Segoe UI', sans-serif;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+.hidden { display: none !important; }
+
+/* Lobby Kartı */
+.main-card {
+    display: flex;
+    background: #1e1e1e;
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    width: 800px;
+    height: 500px;
+    gap: 20px;
+}
+
+.create-section, .list-section {
+    flex: 1;
+    padding: 20px;
+}
+
+.create-section {
+    background: #181818;
+    border-radius: 15px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+h1 { font-size: 40px; margin-bottom: 20px; text-align: center; }
+
+input {
+    width: 100%;
+    padding: 15px;
+    margin-bottom: 15px;
+    background: #252525;
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+.slider-container { margin: 20px 0; }
+input[type="range"] { width: 100%; accent-color: #ffffff; }
+
+#create-btn {
+    width: 100%;
+    padding: 15px;
+    background: #000;
+    color: white;
+    border: 1px solid #333;
+    border-radius: 25px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.3s;
+}
+#create-btn:hover { background: #333; }
+
+/* Otaq Siyahısı */
+.room-item {
+    background: #252525;
+    padding: 15px;
+    border-radius: 15px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.join-btn {
+    background: #333;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 10px;
+    cursor: pointer;
+}
+.join-btn:hover { background: #555; }
+
+/* Otaq Daxili Görünüş */
+#room-container {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: #121212;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+#video-grid {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+    flex-grow: 1;
+}
+
+.user-card {
+    width: 200px;
+    height: 150px;
+    background: #1e1e1e;
+    border-radius: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.avatar {
+    width: 80px;
+    height: 80px;
+    background: #000;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 30px;
+    border: 3px solid #333; /* Danışanda bu yaşıl olacaq */
+}
+
+.user-name { margin-top: 10px; font-weight: bold; }
+
+/* Alt Panel */
+.controls-bar {
+    background: #1e1e1e;
+    padding: 15px 30px;
+    border-radius: 50px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 500px;
+    margin: 0 auto;
+}
+
+.red-btn {
+    background: #ff4757;
+    color: white;
+    border: none;
+    padding: 10px 25px;
+    border-radius: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.icon-btn {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 24px;
+    margin-left: 15px;
+    cursor: pointer;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+}
+.icon-btn:hover { background: #333; }
+.active-btn { background: #fff !important; color: #000 !important; }
+.muted-btn { color: #ff4757 !important; position: relative;}
+.muted-btn::after { content: '/'; position: absolute; font-size: 30px; left: 12px; top: 0;}
+
+/* Danışanda Yanıb sönmə effekti */
+.speaking { border-color: #2ed573 !important; box-shadow: 0 0 15px #2ed573; }

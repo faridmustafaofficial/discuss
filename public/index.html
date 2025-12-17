@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DISCUSS</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="/socket.io/socket.io.js" defer></script>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js" defer></script>
+    <script src="script.js" defer></script>
+</head>
+<body>
+
+    <div id="lobby-container">
+        <div class="main-card">
+            <div class="create-section">
+                <h1>DISCUSS</h1>
+                <input type="text" id="username" placeholder="Adınız (@username)...">
+                <div class="create-box">
+                    <input type="text" id="room-name" placeholder="OTAQ ADI...">
+                    
+                    <div class="slider-container">
+                        <label>Nəfər sayı: <span id="limit-val">2</span></label>
+                        <input type="range" id="limit-slider" min="2" max="8" value="2">
+                    </div>
+                    
+                    <button id="create-btn">OTAQ YARAD</button>
+                </div>
+            </div>
+
+            <div class="list-section">
+                <div id="rooms-list">
+                    </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="room-container" class="hidden">
+        <div class="room-header">
+            <h2 id="active-room-name">Otaq Adı</h2>
+        </div>
+        
+        <div id="video-grid">
+            </div>
+
+        <div class="controls-bar">
+            <button id="leave-btn" class="red-btn">SƏSDƏN ÇIX</button>
+            <div class="audio-controls">
+                <button id="headphone-btn" class="icon-btn"><i class="fa-solid fa-headphones"></i></button>
+                <button id="mic-btn" class="icon-btn"><i class="fa-solid fa-microphone"></i></button>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
