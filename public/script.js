@@ -13,14 +13,20 @@ const messagesBox = document.getElementById('chat-messages');
 const micSelect = document.getElementById('mic-select');
 const contextMenu = document.getElementById('context-menu');
 const chatBadge = document.getElementById('chat-badge');
+const passwordModal = document.getElementById('password-modal');
 
 const peers = {}; 
 let myStream;
+let myScreenStream;
 let currentRoomId = null;
 let isMicMuted = false;
 let isDeafened = false;
+let isScreenSharing = false;
 let iamAdmin = false;
 let targetKickId = null;
+let pendingRoomId = null; 
+
+let audioContext; 
 
 async function getCameras() {
     try {
@@ -49,7 +55,9 @@ document.getElementById('create-btn').onclick = () => {
     const name = document.getElementById('room-name').value;
     const username = document.getElementById('username').value;
     const limit = document.getElementById('limit-slider').value;
-    if(name && username) socket.emit('create-room', { roomName: name, limit, username });
+    const password = document.getElementById('room-password').value;
+
+    if(name && username) socket.emit('create-room', { roomName: name, limit, username, password });
     else alert("Zəhmət olmasa Ad və Otaq adını yazın!");
 };
 
@@ -85,6 +93,53 @@ function appendMessage(user, text, isMe) {
     messagesBox.scrollTop = messagesBox.scrollHeight;
 }
 
+// Ekran Paylaşımı
+document.getElementById('screen-share-btn').onclick = async () => {
+    if (isScreenSharing) {
+        // Ekranı bağla, kameraya/mikrofona qayıt
+        const selectedMic = micSelect.value;
+        const stream = await navigator.mediaDevices.getUserMedia({
+             audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
+             video: false 
+        });
+        replaceStream(stream);
+        isScreenSharing = false;
+        document.getElementById('screen-share-btn').classList.remove('active-btn');
+    } else {
+        // Ekranı aç
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+            replaceStream(stream);
+            isScreenSharing = true;
+            document.getElementById('screen-share-btn').classList.add('active-btn');
+            
+            stream.getVideoTracks()[0].onended = () => {
+                document.getElementById('screen-share-btn').click(); 
+            };
+        } catch(e) {
+            console.log("Ekran paylaşımı ləğv edildi");
+        }
+    }
+};
+
+function replaceStream(newStream) {
+    const videoTrack = newStream.getVideoTracks()[0];
+    const audioTrack = newStream.getAudioTracks()[0];
+
+    // Peer zənglərindəki trackları dəyiş
+    for (let peerId in peers) {
+        const sender = peers[peerId].peerConnection.getSenders().find(s => {
+            return s.track.kind === (videoTrack ? 'video' : 'audio');
+        });
+        if(sender) {
+            sender.replaceTrack(videoTrack || audioTrack);
+        }
+    }
+    myStream = newStream;
+}
+
+
+// Socket Logic
 socket.on('room-list', (rooms) => {
     roomsListEl.innerHTML = '';
     const roomKeys = Object.keys(rooms);
@@ -101,13 +156,14 @@ socket.on('room-list', (rooms) => {
         const isFull = room.users.length >= room.limit;
         const btnAttr = isFull ? 'disabled' : '';
         const countColor = isFull ? 'color:#da373c' : 'color:#949ba4';
+        const lockIcon = room.hasPassword ? '<i class="fa-solid fa-lock" style="color:#faa61a; margin-left:5px;"></i>' : '';
 
         div.innerHTML = `
             <div>
-                <span style="font-weight:bold; display:block;">${room.name}</span>
+                <span style="font-weight:bold; display:block;">${room.name} ${lockIcon}</span>
                 <span style="font-size:12px; ${countColor}"><i class="fa-solid fa-user-group"></i> ${room.users.length}/${room.limit}</span>
             </div>
-            <button class="join-btn" ${btnAttr} onclick="joinRoom('${room.id}', '${room.name}')">QOŞUL</button>
+            <button class="join-btn" ${btnAttr} onclick="tryJoinRoom('${room.id}', '${room.name}', ${room.hasPassword})">QOŞUL</button>
         `;
         roomsListEl.appendChild(div);
     });
@@ -131,14 +187,49 @@ socket.on('kicked-notification', () => {
     location.reload();
 });
 
-window.joinRoom = (roomId, roomName) => {
+
+// JOIN LOGIC
+window.tryJoinRoom = (roomId, roomName, hasPassword) => {
     const username = document.getElementById('username').value;
     if(!username) { alert("Ad daxil edin!"); return; }
     
+    pendingRoomId = roomId;
+
+    if (hasPassword) {
+        passwordModal.classList.remove('hidden');
+        document.getElementById('active-room-name').innerText = roomName; 
+    } else {
+        checkAndJoin(roomId, null, roomName);
+    }
+};
+
+document.getElementById('confirm-join-btn').onclick = () => {
+    const pwd = document.getElementById('join-password-input').value;
+    const roomName = document.getElementById('active-room-name').innerText;
+    checkAndJoin(pendingRoomId, pwd, roomName);
+    passwordModal.classList.add('hidden');
+};
+document.getElementById('cancel-join-btn').onclick = () => passwordModal.classList.add('hidden');
+
+function checkAndJoin(roomId, password, roomName) {
+    socket.emit('check-room', roomId, password, (response) => {
+        if (response.success) {
+            joinRoom(roomId, roomName);
+        } else {
+            alert(response.msg || "Xəta!");
+        }
+    });
+}
+
+function joinRoom(roomId, roomName) {
+    const username = document.getElementById('username').value;
     currentRoomId = roomId;
     lobbyContainer.classList.add('hidden');
     roomContainer.classList.remove('hidden');
     document.getElementById('active-room-name').innerText = roomName;
+
+    // Audio Context Yarad (Visualizer üçün)
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
     const selectedMic = micSelect.value;
     navigator.mediaDevices.getUserMedia({
@@ -146,12 +237,12 @@ window.joinRoom = (roomId, roomName) => {
         video: false
     }).then(stream => {
         myStream = stream;
-        addParticipantUi(myPeer.id, username, true);
+        addParticipantUi(myPeer.id, username, true, stream);
 
         myPeer.on('call', call => {
             call.answer(stream);
             const video = document.createElement('video');
-            call.on('stream', st => addVideoStream(video, st));
+            call.on('stream', st => addVideoStream(video, st, call.peer));
             peers[call.peer] = call;
         });
 
@@ -165,7 +256,8 @@ window.joinRoom = (roomId, roomName) => {
         console.error(err);
         alert("Mikrofona icazə verilmədi!");
     });
-};
+}
+
 
 socket.on('current-participants', (users) => {
     users.forEach(u => {
@@ -182,11 +274,11 @@ socket.on('user-disconnected', userId => {
 function connectToNewUser(userId, stream, userName) {
     const call = myPeer.call(userId, stream);
     const video = document.createElement('video');
-    call.on('stream', st => addVideoStream(video, st));
+    call.on('stream', st => addVideoStream(video, st, userId));
     peers[userId] = call;
 }
 
-function addParticipantUi(userId, userName, isMe) {
+function addParticipantUi(userId, userName, isMe, localStream = null) {
     if(document.getElementById(`user-${userId}`)) return;
     
     const div = document.createElement('div');
@@ -197,6 +289,8 @@ function addParticipantUi(userId, userName, isMe) {
             <i class="fa-solid fa-microphone"></i>
         </div>
         <div class="user-name">${userName}</div>
+        <canvas class="visualizer-canvas"></canvas>
+        <input type="range" class="volume-control" min="0" max="1" step="0.01" value="1" ${isMe ? 'disabled style="opacity:0"' : ''}>
     `;
 
     if(!isMe) {
@@ -209,9 +303,50 @@ function addParticipantUi(userId, userName, isMe) {
                 contextMenu.classList.remove('hidden');
             }
         });
+
+        // Volume Control Logic
+        const slider = div.querySelector('.volume-control');
+        slider.oninput = (e) => {
+            const vid = document.getElementById(`video-${userId}`);
+            if(vid) vid.volume = e.target.value;
+        };
+    } else if (localStream) {
+        setupVisualizer(localStream, div.querySelector('canvas'));
     }
+    
     videoGrid.appendChild(div);
 }
+
+// Visualizer
+function setupVisualizer(stream, canvas) {
+    if (!audioContext) return;
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
+    source.connect(analyser);
+    analyser.fftSize = 64;
+    
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const ctx = canvas.getContext('2d');
+
+    function draw() {
+        requestAnimationFrame(draw);
+        analyser.getByteFrequencyData(dataArray);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        const width = canvas.width / bufferLength;
+        let x = 0;
+        
+        for(let i = 0; i < bufferLength; i++) {
+            const barHeight = dataArray[i] / 2; 
+            ctx.fillStyle = `rgb(88, 101, 242)`;
+            ctx.fillRect(x, canvas.height - barHeight, width - 2, barHeight);
+            x += width;
+        }
+    }
+    draw();
+}
+
 
 document.addEventListener('click', (e) => {
     if (!contextMenu.contains(e.target)) contextMenu.classList.add('hidden');
@@ -222,11 +357,18 @@ document.getElementById('kick-option').onclick = () => {
     contextMenu.classList.add('hidden');
 };
 
-function addVideoStream(video, stream) {
+function addVideoStream(video, stream, userId) {
     video.srcObject = stream;
+    video.id = `video-${userId}`;
     video.addEventListener('loadedmetadata', () => video.play());
     video.style.display = 'none'; 
     videoGrid.append(video);
+
+    // Vizualizatoru remote stream üçün başlat
+    const userCard = document.getElementById(`user-${userId}`);
+    if(userCard) {
+        setupVisualizer(stream, userCard.querySelector('canvas'));
+    }
 }
 
 const micBtn = document.getElementById('mic-btn');
